@@ -48,13 +48,13 @@ pub enum Cmd {
     /// Update settings (PATCH — partial update, missing fields kept as-is).
     Config {
         #[serde(default)]
-        screen: Option<ScreenConfig>,
+        screen: Option<ScreenConfigPatch>,
         #[serde(default)]
-        window: Option<WindowConfig>,
+        window: Option<WindowConfigPatch>,
         #[serde(default)]
-        hid: Option<HidConfig>,
+        hid: Option<HidConfigPatch>,
         #[serde(default)]
-        gesture: Option<GestureConfig>,
+        gesture: Option<GestureConfigPatch>,
     },
 
     /// Query current full settings.
@@ -178,6 +178,41 @@ fn default_swipe_steps_cfg() -> u8 {
     10
 }
 
+/// Per-field PATCH sub-structs for Cmd::Config.
+/// Each field is Option so you can send {"width_px":1440} without resetting height_px.
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ScreenConfigPatch {
+    #[serde(default)]
+    pub width_px: Option<u16>,
+    #[serde(default)]
+    pub height_px: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct WindowConfigPatch {
+    #[serde(default)]
+    pub scale: Option<f32>,
+    #[serde(default)]
+    pub offset_x: Option<i16>,
+    #[serde(default)]
+    pub offset_y: Option<i16>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct HidConfigPatch {
+    #[serde(default)]
+    pub report_interval_ms: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct GestureConfigPatch {
+    #[serde(default)]
+    pub tap_delay_ms: Option<u16>,
+    #[serde(default)]
+    pub swipe_steps: Option<u8>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,12 +291,13 @@ mod tests {
 
     #[test]
     fn round_trip_config_partial() {
-        let json = r#"{"cmd":"config","screen":{"width_px":1080,"height_px":2340}}"#;
+        let json = r#"{"cmd":"config","screen":{"width_px":1080}}"#;
         let cmd: Cmd = serde_json::from_str(json).unwrap();
         match cmd {
             Cmd::Config { screen, window, hid, gesture } => {
-                assert!(screen.is_some());
-                assert_eq!(screen.unwrap().width_px, 1080);
+                let screen = screen.unwrap();
+                assert_eq!(screen.width_px, Some(1080));
+                assert_eq!(screen.height_px, None); // true partial!
                 assert!(window.is_none());
                 assert!(hid.is_none());
                 assert!(gesture.is_none());
@@ -276,10 +312,10 @@ mod tests {
         let cmd: Cmd = serde_json::from_str(json).unwrap();
         match cmd {
             Cmd::Config { screen, window, hid, gesture } => {
-                assert_eq!(screen.unwrap().width_px, 1080);
-                assert_eq!(window.unwrap().scale, 3.0);
-                assert_eq!(hid.unwrap().report_interval_ms, 15);
-                assert_eq!(gesture.unwrap().tap_delay_ms, 80);
+                assert_eq!(screen.unwrap().width_px, Some(1080));
+                assert_eq!(window.unwrap().scale, Some(3.0));
+                assert_eq!(hid.unwrap().report_interval_ms, Some(15));
+                assert_eq!(gesture.unwrap().tap_delay_ms, Some(80));
             }
             _ => panic!("expected Config"),
         }

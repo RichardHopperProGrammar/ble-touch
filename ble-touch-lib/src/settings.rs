@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::{GestureConfig, HidConfig, ScreenConfig, WindowConfig};
+use crate::cmd::{
+    GestureConfig, GestureConfigPatch, HidConfig, HidConfigPatch, ScreenConfig,
+    ScreenConfigPatch, WindowConfig, WindowConfigPatch,
+};
 
 /// Full settings blob stored as a single key in ekv.
 ///
@@ -34,29 +37,54 @@ impl Settings {
     /// Merge a PATCH object into current settings.
     ///
     /// Only fields present in `patch` overwrite the current values.
-    /// Missing fields are kept from `current`.
+    /// Missing fields (None) are kept from `current`.
     pub fn merge(current: &Settings, patch: &SettingsPatch) -> Self {
-        Self {
-            screen: patch.screen.clone().unwrap_or_else(|| current.screen),
-            window: patch.window.clone().unwrap_or_else(|| current.window),
-            hid: patch.hid.clone().unwrap_or_else(|| current.hid),
-            gesture: patch.gesture.clone().unwrap_or_else(|| current.gesture),
-        }
+        let screen = match &patch.screen {
+            Some(p) => ScreenConfig {
+                width_px: p.width_px.unwrap_or(current.screen.width_px),
+                height_px: p.height_px.unwrap_or(current.screen.height_px),
+            },
+            None => current.screen,
+        };
+        let window = match &patch.window {
+            Some(p) => WindowConfig {
+                scale: p.scale.unwrap_or(current.window.scale),
+                offset_x: p.offset_x.unwrap_or(current.window.offset_x),
+                offset_y: p.offset_y.unwrap_or(current.window.offset_y),
+            },
+            None => current.window,
+        };
+        let hid = match &patch.hid {
+            Some(p) => HidConfig {
+                report_interval_ms: p.report_interval_ms.unwrap_or(current.hid.report_interval_ms),
+            },
+            None => current.hid,
+        };
+        let gesture = match &patch.gesture {
+            Some(p) => GestureConfig {
+                tap_delay_ms: p.tap_delay_ms.unwrap_or(current.gesture.tap_delay_ms),
+                swipe_steps: p.swipe_steps.unwrap_or(current.gesture.swipe_steps),
+            },
+            None => current.gesture,
+        };
+        Self { screen, window, hid, gesture }
     }
 }
 
 /// PATCH-compatible settings struct (all fields optional).
 /// Used for deserializing partial config updates from serial.
+/// Each sub-struct uses per-field Option so you can send
+/// {"screen":{"width_px":1440}} without resetting height_px.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsPatch {
     #[serde(default)]
-    pub screen: Option<ScreenConfig>,
+    pub screen: Option<ScreenConfigPatch>,
     #[serde(default)]
-    pub window: Option<WindowConfig>,
+    pub window: Option<WindowConfigPatch>,
     #[serde(default)]
-    pub hid: Option<HidConfig>,
+    pub hid: Option<HidConfigPatch>,
     #[serde(default)]
-    pub gesture: Option<GestureConfig>,
+    pub gesture: Option<GestureConfigPatch>,
 }
 
 impl Default for SettingsPatch {
@@ -86,6 +114,8 @@ mod tests {
         assert_eq!(s.gesture.tap_delay_ms, 50);
     }
 
+    use crate::cmd::WindowConfigPatch;
+
     #[test]
     fn merge_partial_patch() {
         let current = Settings {
@@ -102,19 +132,21 @@ mod tests {
         };
 
         let patch = SettingsPatch {
-            window: Some(WindowConfig {
-                scale: 2.5,
-                offset_x: 0,
-                offset_y: 40,
+            window: Some(WindowConfigPatch {
+                scale: Some(2.5),
+                offset_x: None,
+                offset_y: Some(40),
             }),
             ..Default::default()
         };
 
         let merged = Settings::merge(&current, &patch);
-        // Patched field changed
+        // Patched fields changed
         assert_eq!(merged.window.scale, 2.5);
         assert_eq!(merged.window.offset_y, 40);
-        // Unpatched fields preserved
+        // Unpatched fields within window preserved
+        assert_eq!(merged.window.offset_x, 0); // was None in patch, kept from current
+        // Unpatched sub-structs preserved
         assert_eq!(merged.screen.width_px, 1080);
         assert_eq!(merged.hid.report_interval_ms, 20);
     }
@@ -132,9 +164,22 @@ mod tests {
     fn deserialize_partial_json() {
         let json = r#"{"screen":{"width_px":1440}}"#;
         let patch: SettingsPatch = serde_json::from_str(json).unwrap();
-        assert_eq!(patch.screen.unwrap().width_px, 1440);
-        assert_eq!(patch.screen.unwrap().height_px, 2340); // default
+        let screen_patch = patch.screen.unwrap();
+        assert_eq!(screen_patch.width_px, Some(1440));
+        assert_eq!(screen_patch.height_px, None); // NOT defaulted — true partial!
         assert!(patch.window.is_none());
+    }
+
+    #[test]
+    fn merge_preserves_unsent_fields() {
+        let current = Settings::default();
+        let json = r#"{"screen":{"width_px":1440}}"#;
+        let patch: SettingsPatch = serde_json::from_str(json).unwrap();
+        let merged = Settings::merge(&current, &patch);
+        // Only width_px changed
+        assert_eq!(merged.screen.width_px, 1440);
+        // height_px preserved from current (not reset to default)
+        assert_eq!(merged.screen.height_px, 2340);
     }
 
     #[test]

@@ -10,6 +10,10 @@ pub fn cdp_to_hid(
     window: &WindowConfig,
     screen: &ScreenConfig,
 ) -> (u16, u16) {
+    if screen.width_px == 0 || screen.height_px == 0 {
+        return (0, 0);
+    }
+
     let phys_x = (cdp_x as f32 * window.scale + window.offset_x as f32).clamp(0.0, screen.width_px as f32);
     let phys_y = (cdp_y as f32 * window.scale + window.offset_y as f32).clamp(0.0, screen.height_px as f32);
 
@@ -135,5 +139,17 @@ mod tests {
         // x = 100 * 1.0 + (-50) = 50; 50/800 * 4095 = 256
         let (x, _y) = cdp_to_hid(100, 100, &window, &screen);
         assert!(x >= 250 && x <= 260);
+    }
+
+    #[test]
+    fn zero_screen_dimensions_returns_zero() {
+        let screen = ScreenConfig {
+            width_px: 0,
+            height_px: 0,
+        };
+        let window = WindowConfig::default();
+        let (x, y) = cdp_to_hid(512, 768, &window, &screen);
+        assert_eq!(x, 0);
+        assert_eq!(y, 0);
     }
 }
