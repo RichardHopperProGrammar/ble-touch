@@ -11,8 +11,9 @@ pub fn parse_cmd(line: &str) -> Result<cmd::Cmd, serde_json::Error> {
 
 /// Process a command and return the appropriate gesture sequence.
 ///
-/// Incoming coordinates are CDP CSS pixels. This function transforms them
-/// through [`coords::cdp_to_hid`] into HID logical space (0–4095) before
+/// Incoming coordinates are source pixels from the host controller.
+/// This function transforms them through [`coords::px_to_hid`] into
+/// HID logical space (0–4095) before
 /// dispatching to gesture synthesizers.
 ///
 /// Returns `None` for commands that don't produce touch events
@@ -24,7 +25,7 @@ pub fn process_cmd(
     use cmd::Cmd;
 
     let transform = |x: u16, y: u16| -> (u16, u16) {
-        coords::cdp_to_hid(x, y, &settings.window, &settings.screen)
+        coords::px_to_hid(x, y, &settings.window, &settings.screen)
     };
 
     match cmd {
@@ -89,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn full_pipeline_cdp_to_hid_reports() {
+    fn full_pipeline_px_to_hid_reports() {
         // Full pipeline: parse JSON → process_cmd transforms coords → HID reports
         let line = r#"{"cmd":"tap","x":360,"y":780}"#;
         let cmd = parse_cmd(line).unwrap();
@@ -107,12 +108,12 @@ mod tests {
             ..Default::default()
         };
 
-        // process_cmd now internally calls cdp_to_hid
+        // process_cmd now internally calls px_to_hid
         let seq = process_cmd(&cmd, &settings).unwrap();
         assert_eq!(seq.steps.len(), 2);
         let bytes = seq.steps[0].report.to_bytes();
         assert_eq!(bytes.len(), 8);
-        // Verify coords were transformed (CDP 360,780 with 3x scale + 60 offset
+        // Verify coords were transformed (source 360,780 with 3x scale + 60 offset
         // should produce HID coords significantly higher than raw values)
         assert!(seq.steps[0].report.x > 0);
         assert!(seq.steps[0].report.y > 0);

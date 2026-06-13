@@ -4,7 +4,7 @@ ESP32-C3 BLE HID touch bridge. Receives JSON commands over serial (CDC-ACM), syn
 
 ## What It Does
 
-Acts as a programmable touch screen for any BLE HID host (phone, tablet, PC). You send gesture commands over serial from a companion app or Chrome DevTools bridge, and the ESP32 presents them as real touchscreen input to the paired device.
+Acts as a programmable touch screen for any BLE HID host (phone, tablet, PC). You send gesture commands over serial from a host controller app, and the ESP32 presents them as real touchscreen input to the paired device.
 
 ### Serial Command Format
 
@@ -21,7 +21,7 @@ Full command schema: see [`src/cmd.rs`](src/cmd.rs).
 
 ### Coordinate Pipeline
 
-CDP CSS pixels → scale/offset transform → physical screen pixels → normalized 0–4095 HID range. Configurable via `window` and `screen` settings.
+Source pixels → scale/offset transform → physical screen pixels → normalized 0–4095 HID range. Configurable via `window` and `screen` settings.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ Single Rust package with implicit library + explicit binary:
 ### Module Breakdown
 
 - **`cmd`** — JSON command enum with serde tagged serialization (`{"cmd":"tap",...}`)
-- **`coords`** — CDP-to-HID coordinate transformation pipeline
+- **`coords`** — Source-to-HID coordinate transformation pipeline
 - **`gesture`** — Gesture synthesis (tap, swipe, long press, drag) with interpolation
 - **`hid`** — Single-touch HID descriptor + 8-byte report builder
 - **`settings`** — Device config with per-field PATCH merge semantics

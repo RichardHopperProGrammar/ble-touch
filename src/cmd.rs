@@ -104,7 +104,7 @@ fn default_height_px() -> u16 {
     2340
 }
 
-/// Chrome window offset and DPR scale.
+/// Source viewport offset and scale factor (e.g., for DPR or overlay chrome).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct WindowConfig {
     #[serde(default = "default_scale")]

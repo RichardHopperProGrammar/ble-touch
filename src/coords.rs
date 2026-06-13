@@ -1,12 +1,12 @@
 use crate::cmd::{ScreenConfig, WindowConfig};
 
-/// Pipeline: CDP CSS pixel → physical screen pixel → HID logical coordinate.
+/// Pipeline: input source pixel → physical screen pixel → HID logical coordinate.
 ///
-/// 1. `cdp_px * scale + offset` → physical screen pixels (accounts for DPR + Chrome UI chrome)
+/// 1. `src_px * scale + offset` → physical screen pixels (accounts for DPR + viewport chrome)
 /// 2. `physical_px / screen_px * 4095` → HID logical coordinate (0–4095)
-pub fn cdp_to_hid(
-    cdp_x: u16,
-    cdp_y: u16,
+pub fn px_to_hid(
+    src_x: u16,
+    src_y: u16,
     window: &WindowConfig,
     screen: &ScreenConfig,
 ) -> (u16, u16) {
@@ -14,8 +14,8 @@ pub fn cdp_to_hid(
         return (0, 0);
     }
 
-    let phys_x = (cdp_x as f32 * window.scale + window.offset_x as f32).clamp(0.0, screen.width_px as f32);
-    let phys_y = (cdp_y as f32 * window.scale + window.offset_y as f32).clamp(0.0, screen.height_px as f32);
+    let phys_x = (src_x as f32 * window.scale + window.offset_x as f32).clamp(0.0, screen.width_px as f32);
+    let phys_y = (src_y as f32 * window.scale + window.offset_y as f32).clamp(0.0, screen.height_px as f32);
 
     let hid_x = ((phys_x / screen.width_px as f32) * 4095.0).round() as u16;
     let hid_y = ((phys_y / screen.height_px as f32) * 4095.0).round() as u16;
@@ -27,7 +27,7 @@ pub fn cdp_to_hid(
 mod tests {
     use super::*;
 
-    fn phone_screen() -> ScreenConfig {
+    fn sample_screen() -> ScreenConfig {
         ScreenConfig {
             width_px: 1080,
             height_px: 2340,
@@ -44,16 +44,16 @@ mod tests {
 
     #[test]
     fn origin_maps_to_near_zero() {
-        let (x, y) = cdp_to_hid(0, 0, &high_dpr_window(), &phone_screen());
+        let (x, y) = px_to_hid(0, 0, &high_dpr_window(), &sample_screen());
         // With offset_y=60 and height=2340: (60/2340)*4095 ≈ 105
         assert!(x <= 2); // x should be ~0
         assert!(y < 200); // y should be ~105 from the offset
     }
 
     #[test]
-    fn center_cdp_maps_reasonably() {
-        // CDP viewport roughly 360x780 at 3x scale → physical 1080x2340
-        let (x, y) = cdp_to_hid(180, 390, &high_dpr_window(), &phone_screen());
+    fn center_maps_reasonably() {
+        // Source viewport roughly 360x780 at 3x scale → physical 1080x2340
+        let (x, y) = px_to_hid(180, 390, &high_dpr_window(), &sample_screen());
         // 180 * 3.0 = 540; 540/1080 * 4095 = 2047.5
         assert!(x >= 2045 && x <= 2050);
         // 390 * 3.0 + 60 = 1230; 1230/2340 * 4095 = 2152.5
@@ -61,9 +61,9 @@ mod tests {
     }
 
     #[test]
-    fn max_cdp_clamps_to_4095() {
-        // Way out of bounds CDP coords
-        let (x, y) = cdp_to_hid(9999, 9999, &high_dpr_window(), &phone_screen());
+    fn max_coords_clamp_to_4095() {
+        // Way out of bounds coords
+        let (x, y) = px_to_hid(9999, 9999, &high_dpr_window(), &sample_screen());
         assert_eq!(x, 4095);
         assert_eq!(y, 4095);
     }
@@ -80,7 +80,7 @@ mod tests {
             offset_y: 0,
         };
         // At center of screen: 400px / 800px * 4095 = 2047.5
-        let (x, y) = cdp_to_hid(400, 300, &window, &screen);
+        let (x, y) = px_to_hid(400, 300, &window, &screen);
         assert_eq!(x, 2048); // rounds to nearest
         assert_eq!(y, 2048);
     }
@@ -94,7 +94,7 @@ mod tests {
         // With offset_y=60 and height_px=1: phys_y clamps to 1, hid_y = 4095
         // That's fine — the important thing is no division by zero panic.
         let window = WindowConfig::default();
-        let (x, _y) = cdp_to_hid(0, 0, &window, &screen);
+        let (x, _y) = px_to_hid(0, 0, &window, &screen);
         assert_eq!(x, 0); // x with offset_x=0 should be 0
     }
 
@@ -109,24 +109,24 @@ mod tests {
             offset_x: 0,
             offset_y: 0,
         };
-        let (x, y) = cdp_to_hid(0, 0, &window, &screen);
+        let (x, y) = px_to_hid(0, 0, &window, &screen);
         assert_eq!(x, 0);
         assert_eq!(y, 0);
     }
 
     #[test]
-    fn overflow_cdp_clamps() {
+    fn overflow_clamps() {
         let screen = ScreenConfig::default();
         let window = WindowConfig::default();
-        // cdp_x = 9999 >> phys_x clamped to screen.width_px >> hid_x = 4095
-        let (x, y) = cdp_to_hid(9999, 9999, &window, &screen);
+        // src_x = 9999 >> phys_x clamped to screen.width_px >> hid_x = 4095
+        let (x, y) = px_to_hid(9999, 9999, &window, &screen);
         assert_eq!(x, 4095);
         assert_eq!(y, 4095);
     }
 
     #[test]
     fn negative_offset_handled() {
-        // Offset can be negative (e.g., if Chrome window starts above screen origin)
+        // Offset can be negative (e.g., if source window starts above screen origin)
         let window = WindowConfig {
             scale: 1.0,
             offset_x: -50,
@@ -137,7 +137,7 @@ mod tests {
             height_px: 600,
         };
         // x = 100 * 1.0 + (-50) = 50; 50/800 * 4095 = 256
-        let (x, _y) = cdp_to_hid(100, 100, &window, &screen);
+        let (x, _y) = px_to_hid(100, 100, &window, &screen);
         assert!(x >= 250 && x <= 260);
     }
 
@@ -148,7 +148,7 @@ mod tests {
             height_px: 0,
         };
         let window = WindowConfig::default();
-        let (x, y) = cdp_to_hid(512, 768, &window, &screen);
+        let (x, y) = px_to_hid(512, 768, &window, &screen);
         assert_eq!(x, 0);
         assert_eq!(y, 0);
     }
