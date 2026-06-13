@@ -61,7 +61,7 @@ pub const TOUCH_SCREEN_DESCRIPTOR: &[u8] = &[
     0xc0, // END_COLLECTION (Touch Screen)
 ];
 
-/// HID Touch Report: 8 bytes of data + 1 byte report ID = 9 bytes total.
+/// HID Touch Report: 8 bytes total (including report ID).
 ///
 /// Layout (little-endian):
 /// | Byte 0 | Byte 1 | Byte 2 | Bytes 3-4   | Bytes 5-6   | Byte 7 |
@@ -100,7 +100,7 @@ impl HidReport {
         }
     }
 
-    /// Serialize to 9-byte HID report (little-endian).
+    /// Serialize to 8-byte HID report (little-endian, report ID included).
     pub fn to_bytes(&self) -> [u8; 8] {
         let mut buf = [0u8; 8];
         buf[0] = 0x01;                          // Report ID

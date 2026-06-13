@@ -11,6 +11,10 @@ pub fn parse_cmd(line: &str) -> Result<cmd::Cmd, serde_json::Error> {
 
 /// Process a command and return the appropriate gesture sequence.
 ///
+/// Incoming coordinates are CDP CSS pixels. This function transforms them
+/// through [`coords::cdp_to_hid`] into HID logical space (0–4095) before
+/// dispatching to gesture synthesizers.
+///
 /// Returns `None` for commands that don't produce touch events
 /// (Config, GetSettings, Pair, Unpair, ListBonds).
 pub fn process_cmd(
@@ -19,17 +23,38 @@ pub fn process_cmd(
 ) -> Option<gesture::GestureSequence> {
     use cmd::Cmd;
 
+    let transform = |x: u16, y: u16| -> (u16, u16) {
+        coords::cdp_to_hid(x, y, &settings.window, &settings.screen)
+    };
+
     match cmd {
-        Cmd::Tap { x, y } => Some(gesture::synthesize_tap(*x, *y, &settings.gesture)),
-        Cmd::Down { x, y } => Some(gesture::synthesize_down(*x, *y)),
-        Cmd::Move { x, y } => Some(gesture::synthesize_move(*x, *y)),
+        Cmd::Tap { x, y } => {
+            let (hx, hy) = transform(*x, *y);
+            Some(gesture::synthesize_tap(hx, hy, &settings.gesture))
+        }
+        Cmd::Down { x, y } => {
+            let (hx, hy) = transform(*x, *y);
+            Some(gesture::synthesize_down(hx, hy))
+        }
+        Cmd::Move { x, y } => {
+            let (hx, hy) = transform(*x, *y);
+            Some(gesture::synthesize_move(hx, hy))
+        }
         Cmd::Up => Some(gesture::synthesize_up()),
         Cmd::Swipe { from, to, steps } => {
-            Some(gesture::synthesize_swipe(*from, *to, *steps, &settings.gesture))
+            let (hx1, hy1) = transform(from.x, from.y);
+            let (hx2, hy2) = transform(to.x, to.y);
+            let hfrom = cmd::Point { x: hx1, y: hy1 };
+            let hto = cmd::Point { x: hx2, y: hy2 };
+            Some(gesture::synthesize_swipe(hfrom, hto, *steps, &settings.gesture))
         }
-        Cmd::Dtap { x, y } => Some(gesture::synthesize_dtap(*x, *y, &settings.gesture)),
+        Cmd::Dtap { x, y } => {
+            let (hx, hy) = transform(*x, *y);
+            Some(gesture::synthesize_dtap(hx, hy, &settings.gesture))
+        }
         Cmd::LongPress { x, y, duration_ms } => {
-            Some(gesture::synthesize_long_press(*x, *y, *duration_ms))
+            let (hx, hy) = transform(*x, *y);
+            Some(gesture::synthesize_long_press(hx, hy, *duration_ms))
         }
         Cmd::Config { .. } => None,
         Cmd::GetSettings => None,
@@ -42,7 +67,7 @@ pub fn process_cmd(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::Cmd;
+
 
     #[test]
     fn parse_and_process_tap() {
@@ -65,7 +90,7 @@ mod tests {
 
     #[test]
     fn full_pipeline_cdp_to_hid_reports() {
-        // Full pipeline: parse JSON → apply coordinate transform → get HID reports
+        // Full pipeline: parse JSON → process_cmd transforms coords → HID reports
         let line = r#"{"cmd":"tap","x":360,"y":780}"#;
         let cmd = parse_cmd(line).unwrap();
 
@@ -82,15 +107,15 @@ mod tests {
             ..Default::default()
         };
 
-        // Manually transform coords first
-        if let Cmd::Tap { x, y } = &cmd {
-            let (hid_x, hid_y) = coords::cdp_to_hid(*x, *y, &settings.window, &settings.screen);
-            let seq = gesture::synthesize_tap(hid_x, hid_y, &settings.gesture);
-            let bytes = seq.steps[0].report.to_bytes();
-            assert_eq!(bytes.len(), 8);
-        } else {
-            panic!("expected Tap");
-        }
+        // process_cmd now internally calls cdp_to_hid
+        let seq = process_cmd(&cmd, &settings).unwrap();
+        assert_eq!(seq.steps.len(), 2);
+        let bytes = seq.steps[0].report.to_bytes();
+        assert_eq!(bytes.len(), 8);
+        // Verify coords were transformed (CDP 360,780 with 3x scale + 60 offset
+        // should produce HID coords significantly higher than raw values)
+        assert!(seq.steps[0].report.x > 0);
+        assert!(seq.steps[0].report.y > 0);
     }
 
     #[test]
