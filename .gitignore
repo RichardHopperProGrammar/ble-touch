@@ -1,6 +1,7 @@
 /target
-/embuild
-Cargo.lock
+.embuild
+sdkconfig
+sdkconfig.old
 **/*.rs.bk
 *.swp
 *~

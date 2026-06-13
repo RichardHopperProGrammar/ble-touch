@@ -4,7 +4,7 @@
 //! On host: uses defaults / prints to stdout.
 
 #[cfg(feature = "esp32")]
-use ble_touch_lib::settings::Settings;
+use ble_touch::settings::Settings;
 #[cfg(feature = "esp32")]
 use log::warn;
 
@@ -35,13 +35,13 @@ pub fn save_settings(settings: &Settings) -> Result<(), String> {
 
 #[cfg(not(feature = "esp32"))]
 /// Stub for host builds — always returns defaults.
-pub fn load_settings() -> ble_touch_lib::settings::Settings {
-    ble_touch_lib::settings::Settings::default()
+pub fn load_settings() -> ble_touch::settings::Settings {
+    ble_touch::settings::Settings::default()
 }
 
 #[cfg(not(feature = "esp32"))]
 /// Stub for host builds — no-op, just prints the JSON.
-pub fn save_settings(settings: &ble_touch_lib::settings::Settings) -> Result<(), String> {
+pub fn save_settings(settings: &ble_touch::settings::Settings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     println!("[storage] Would save settings:\n{}", json);
     Ok(())

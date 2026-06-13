@@ -10,7 +10,7 @@ mod ble;
 mod serial;
 mod storage;
 
-use ble_touch_lib::cmd::Cmd;
+use ble_touch::cmd::Cmd;
 use log::{error, info, warn};
 
 #[cfg(feature = "esp32")]
@@ -38,7 +38,7 @@ fn main() {
             Ok(line) if line.is_empty() => continue,
             Ok(line) => {
                 // Parse JSON command
-                let cmd = match ble_touch_lib::parse_cmd(&line) {
+                let cmd = match ble_touch::parse_cmd(&line) {
                     Ok(c) => c,
                     Err(e) => {
                         warn!("Parse error: {:?} — line: {}", e, line);
@@ -50,13 +50,13 @@ fn main() {
                 // Dispatch
                 match cmd {
                     Cmd::Config { screen, window, hid, gesture } => {
-                        let patch = ble_touch_lib::settings::SettingsPatch {
+                        let patch = ble_touch::settings::SettingsPatch {
                             screen,
                             window,
                             hid,
                             gesture,
                         };
-                        settings = ble_touch_lib::settings::Settings::merge(&settings, &patch);
+                        settings = ble_touch::settings::Settings::merge(&settings, &patch);
                         if let Err(e) = storage::save_settings(&settings) {
                             error!("Save failed: {}", e);
                             serial::write_response(&format!("{{\"ok\":false,\"error\":\"{}\"}}", e));
@@ -89,7 +89,7 @@ fn main() {
                     | Cmd::Swipe { .. }
                     | Cmd::Dtap { .. }
                     | Cmd::LongPress { .. } => {
-                        if let Some(seq) = ble_touch_lib::process_cmd(&cmd, &settings) {
+                        if let Some(seq) = ble_touch::process_cmd(&cmd, &settings) {
                             ble::send_hid_reports(&seq);
                             serial::write_response(r#"{"ok":true,"status":"gesture sent"}"#);
                         } else {
@@ -115,10 +115,10 @@ fn main() {
 
     // Quick smoke test: parse a command and verify the lib works
     let line = r#"{"cmd":"tap","x":512,"y":768}"#;
-    match ble_touch_lib::parse_cmd(line) {
+    match ble_touch::parse_cmd(line) {
         Ok(cmd) => {
-            let settings = ble_touch_lib::settings::Settings::default();
-            if let Some(seq) = ble_touch_lib::process_cmd(&cmd, &settings) {
+            let settings = ble_touch::settings::Settings::default();
+            if let Some(seq) = ble_touch::process_cmd(&cmd, &settings) {
                 println!("  OK: parsed {:?} -> {} gesture steps", cmd, seq.steps.len());
             } else {
                 println!("  OK: parsed {:?} -> no gesture (config/cmd)", cmd);

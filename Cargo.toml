@@ -1,3 +1,35 @@
-[workspace]
-members = ["ble-touch-lib", "ble-touch-bin"]
+[package]
+name = "ble-touch"
+version = "0.1.0"
+edition = "2021"
 resolver = "2"
+rust-version = "1.82"
+
+[[bin]]
+name = "ble-touch"
+harness = false
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[features]
+default = []
+esp32 = ["dep:esp-idf-svc", "dep:esp32-nimble"]
+
+[dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+esp-idf-svc = { version = "0.52", features = ["binstart"], optional = true }
+esp32-nimble = { version = "0.12", optional = true }
+
+[build-dependencies]
+embuild = { version = "0.33", features = ["espidf"] }
+
+# Forked esp-idf-sys with NimBLE header fixes for ESP-IDF v5.3.x
+[patch.crates-io]
+esp-idf-sys = { git = "https://github.com/RichardHopperProGrammar/esp-idf-sys.git", branch = "patched-main" }

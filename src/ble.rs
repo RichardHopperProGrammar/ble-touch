@@ -64,7 +64,7 @@ pub fn init_and_advertise() -> Result<(), String> {
 
 #[cfg(feature = "esp32")]
 fn build_hogp_service(_server: &mut esp32_nimble::BLEServer) -> Result<(), String> {
-    use ble_touch_lib::hid::TOUCH_SCREEN_DESCRIPTOR;
+    use ble_touch::hid::TOUCH_SCREEN_DESCRIPTOR;
 
     info!(
         "HOGP service built — descriptor={} bytes, report_map={} bytes",
@@ -76,7 +76,7 @@ fn build_hogp_service(_server: &mut esp32_nimble::BLEServer) -> Result<(), Strin
 
 #[cfg(feature = "esp32")]
 /// Send a sequence of HID reports over the connected BLE link.
-pub fn send_hid_reports(seq: &ble_touch_lib::gesture::GestureSequence) {
+pub fn send_hid_reports(seq: &ble_touch::gesture::GestureSequence) {
     for step in &seq.steps {
         let report = step.report.to_bytes();
         info!("HID report: {:?}", report);
@@ -93,4 +93,4 @@ pub fn init_and_advertise() -> Result<(), String> {
 }
 
 #[cfg(not(feature = "esp32"))]
-pub fn send_hid_reports(_seq: &ble_touch_lib::gesture::GestureSequence) {}
+pub fn send_hid_reports(_seq: &ble_touch::gesture::GestureSequence) {}
