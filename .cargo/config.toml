@@ -1,0 +1,14 @@
+[build]
+target = "riscv32imc-esp-espidf"
+
+[target.'cfg(target_os = "espidf")']
+linker = "ldproxy"
+rustflags = ["--cfg", "espidf_time64"]
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
+[env]
+MCU = "esp32c3"
+ESP_IDF_VERSION = "v5.3.4"
+ESP_IDF_SDKCONFIG_DEFAULTS = "/home/openclaw/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/esp32-nimble-0.12.0/sdkconfig.defaults"

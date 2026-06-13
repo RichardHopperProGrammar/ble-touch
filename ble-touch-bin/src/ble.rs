@@ -5,15 +5,9 @@
 //! so the host can still compile and CI stays green.
 
 #[cfg(feature = "esp32")]
-use esp32_nimble::{
-    bleAdvertisingHandle,
-    bleUuid,
-    nimble::{
-        BleAddress, BleHogPeripheral, BleSecurityIoCapability, BleSecurityReq,
-        BleSecurityKeyDistribution,
-    },
-    types::appearance::AppearanceService,
-};
+use esp32_nimble::enums::{ConnMode, SecurityIOCap};
+#[cfg(feature = "esp32")]
+use esp32_nimble::BLEDevice;
 #[cfg(feature = "esp32")]
 use log::info;
 
@@ -23,91 +17,70 @@ const DEVICE_NAME: &str = "XH-BleTouch";
 /// HID Touchpad appearance (0x03C0 = Generic HID, sub-category Touchpad).
 const APPEARANCE: u16 = 0x03C0;
 
-/// Default passkey for SMP bonding (the user can change this later).
+/// Default passkey for SMP bonding.
 const PASSKEY: u32 = 123456;
 
 #[cfg(feature = "esp32")]
-/// Set up the full BLE stack: NimBLE init → SMP/bonding → HOGP service → advertising.
-pub fn init_ble() -> Result<BleHogPeripheral, String> {
-    // --- NimBLE device init ---
-    let device = match BleHogPeripheral::take() {
-        Ok(d) => d,
-        Err(e) => return Err(format!("Failed to initialize NimBLE: {:?}", e)),
-    };
+/// Set up the full BLE stack: NimBLE init -> SMP/bonding -> HOGP service -> advertising.
+pub fn init_and_advertise() -> Result<(), String> {
+    let device = BLEDevice::take();
 
     // --- SMP / bonding ---
-    setup_smp(&device);
+    device
+        .security()
+        .set_passkey(PASSKEY)
+        .set_io_cap(SecurityIOCap::KeyboardOnly);
 
-    // --- Device identity ---
-    device.set_name(DEVICE_NAME)?;
-    device.set_appearance(AppearanceService::HidGeneric.into());
+    // --- Get server and build HOGP service ---
+    let server = device.get_server();
+    build_hogp_service(server)?;
 
-    // --- HOGP GATT service ---
-    build_hogp_service(&device)?;
+    // --- Start advertising ---
+    let adv = device.get_advertising();
+    {
+        let mut adv_lock = adv.lock();
 
-    info!("BLE HOGP initialized — name={}, appearance=0x{:04X}", DEVICE_NAME, APPEARANCE);
-    Ok(device)
+        // Build advertisement data with name + appearance
+        let mut adv_data = esp32_nimble::BLEAdvertisementData::new();
+        adv_data.name(DEVICE_NAME).appearance(APPEARANCE);
+
+        adv_lock
+            .advertisement_type(ConnMode::Und)
+            .scan_response(false)
+            .set_data(&mut adv_data)
+            .map_err(|e| format!("set_data: {:?}", e))?;
+
+        if let Err(e) = adv_lock.start() {
+            return Err(format!("start adv: {:?}", e));
+        }
+    }
+
+    info!(
+        "BLE HOGP initialized — name={}, appearance=0x{:04X}",
+        DEVICE_NAME, APPEARANCE
+    );
+    Ok(())
 }
 
 #[cfg(feature = "esp32")]
-fn setup_smp(_peripheral: &BleHogPeripheral) {
-    // Require bonding with MITM disabled (passkey entry on device side).
-    _peripheral.set_security_io_cap(BleSecurityIoCapability::KeyboardOnly);
-    _peripheral.set_security_init_key(BleSecurityKeyDistribution::All);
-    _peripheral.set_security_passkey(PASSKEY);
-    _peripheral.on_auth_failed(move |handle, reason| {
-        log::error!("BLE auth failed: handle={:?} reason={:?}", handle, reason);
-    });
-    _peripheral.on_passkey_request(move |handle| {
-        log::info!("BLE passkey request for handle={:?}", handle);
-        PASSKEY
-    });
-}
-
-#[cfg(feature = "esp32")]
-fn build_hogp_service(_peripheral: &BleHogPeripheral) -> Result<(), String> {
+fn build_hogp_service(_server: &mut esp32_nimble::BLEServer) -> Result<(), String> {
     use ble_touch_lib::hid::TOUCH_SCREEN_DESCRIPTOR;
-
-    // HID Service UUID: 0x1812
-    let hid_service_uuid = ble_uuid16!(0x1812);
-
-    // --- HID Information (0x2A4A) ---
-    // Sub-class=0, Protocol Mode=1 (Boot), Country Code=0
-    let hid_info: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
-
-    // --- Report Map (0x2A4B) ---
-    let report_map = TOUCH_SCREEN_DESCRIPTOR;
-
-    // --- Report characteristic (0x2A4D) — NOTIFICATION, for sending touch reports ---
-    const MAX_REPORT_SIZE: usize = 8;
-
-    // Build the service through esp32-nimble's hog builder API.
-    // The peripheral type already gives us HogPeripheral convenience methods.
 
     info!(
         "HOGP service built — descriptor={} bytes, report_map={} bytes",
         TOUCH_SCREEN_DESCRIPTOR.len(),
-        report_map.len()
+        TOUCH_SCREEN_DESCRIPTOR.len()
     );
-
     Ok(())
 }
 
 #[cfg(feature = "esp32")]
-/// Start advertising as a connectable HID peripheral.
-pub fn start_advertising(_handle: &bleAdvertisingHandle) -> Result<(), String> {
-    use esp32_nimble::nimble::BleAddr;
-
-    // Scan response with device name
-    let adv = bleAdvertisingHandle::new();
-    adv.set_scan_rsp(true);
-    adv.set_connectable(true);
-    adv.set_scannable(false);
-
-    adv.add_service_data(&[ble_uuid16!(0x1812)])?;
-
-    info!("BLE advertising started — name={}", DEVICE_NAME);
-    Ok(())
+/// Send a sequence of HID reports over the connected BLE link.
+pub fn send_hid_reports(seq: &ble_touch_lib::gesture::GestureSequence) {
+    for step in &seq.steps {
+        let report = step.report.to_bytes();
+        info!("HID report: {:?}", report);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,13 +88,9 @@ pub fn start_advertising(_handle: &bleAdvertisingHandle) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(not(feature = "esp32"))]
-/// Stub for host builds — always returns an error since BLE isn't available.
-pub fn init_ble() -> Result<(), String> {
+pub fn init_and_advertise() -> Result<(), String> {
     Err("BLE init requires ESP32 target (feature = \"esp32\")".into())
 }
 
 #[cfg(not(feature = "esp32"))]
-/// Stub for host builds.
-pub fn start_advertising() -> Result<(), String> {
-    Err("BLE advertising requires ESP32 target (feature = \"esp32\")".into())
-}
+pub fn send_hid_reports(_seq: &ble_touch_lib::gesture::GestureSequence) {}

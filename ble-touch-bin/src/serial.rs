@@ -1,84 +1,55 @@
-//! CDC-ACM serial I/O over USB.
+//! Serial I/O for reading JSON commands and sending responses.
 //!
-//! Reads newline-delimited JSON commands from the host PC and sends JSON
-//! responses back.  All hardware-specific code is behind `#[cfg(feature = "esp32")]`.
+//! On ESP32: reads from UART0 (stdin/console).
+//! On host: uses stdin/stdout for testing.
 
 #[cfg(feature = "esp32")]
-use esp_idf_svc::hal::usb::UsbDevice;
-#[cfg(feature = "esp32")]
-use log::{error, warn};
+use log::warn;
 
 /// Maximum bytes we accept per serial line before dropping the remainder.
 const MAX_LINE: usize = 256;
 
-/// Internal line buffer.
 #[cfg(feature = "esp32")]
-struct SerialIo {
-    buf: [u8; MAX_LINE],
-    pos: usize,
+/// Read one newline-delimited line from UART0 stdin.
+pub fn read_line() -> Result<String, String> {
+    use std::io::{self, Read};
+
+    // Use ESP-IDF's console/stdio which is already set up by esp-idf-svc binstart
+    let stdin = io::stdin();
+    let mut lock = stdin.lock();
+
+    let mut buffer = [0u8; MAX_LINE];
+    let mut total: usize = 0;
+
+    while total < MAX_LINE - 1 {
+        match lock.read(&mut buffer[total..total + 1]) {
+            Ok(1) => {
+                if buffer[total] == b'\n' || buffer[total] == b'\r' {
+                    break;
+                }
+                total += 1;
+            }
+            Ok(_) => break,
+            Err(e) => {
+                if total > 0 {
+                    warn!("Serial read error after {} bytes: {:?}", total, e);
+                    break;
+                }
+                return Err(format!("Serial read error: {:?}", e));
+            }
+        }
+    }
+
+    match core::str::from_utf8(&buffer[..total]) {
+        Ok(s) => Ok(s.trim().to_string()),
+        Err(_) => Err("Invalid UTF-8 on serial line".into()),
+    }
 }
 
 #[cfg(feature = "esp32")]
-impl SerialIo {
-    fn new() -> Self {
-        Self {
-            buf: [0u8; MAX_LINE],
-            pos: 0,
-        }
-    }
-
-    /// Read one newline-delimited line from CDC-ACM.
-    ///
-    /// Returns `Ok(line)` (without the trailing `\n`) or `Err` on read failure.
-    pub fn read_line(&mut self, _usb: &UsbDevice) -> Result<String, String> {
-        // Blocking read loop — accumulate bytes until '\n' or buffer full.
-        let mut total = 0usize;
-
-        while total < MAX_LINE - 1 {
-            match _usb.read(1) {
-                Ok([byte]) if byte == b'\n' || byte == b'\r' => {
-                    // Drop carriage return (Windows \r\n)
-                    break;
-                }
-                Ok([byte]) => {
-                    self.buf[total] = byte;
-                    total += 1;
-                }
-                Ok(_) => continue, // shouldn't happen with read(1)
-                Err(e) => {
-                    if total > 0 {
-                        warn!("Serial read error after {} bytes: {:?}", total, e);
-                        break;
-                    }
-                    return Err(format!("Serial read error: {:?}", e));
-                }
-            }
-        }
-
-        if total == MAX_LINE - 1 {
-            warn!("Line exceeded {} bytes — truncating", MAX_LINE);
-        }
-
-        match core::str::from_utf8(&self.buf[..total]) {
-            Ok(s) => {
-                self.pos = 0;
-                Ok(s.trim().to_string())
-            }
-            Err(_) => {
-                self.pos = 0;
-                Err("Invalid UTF-8 on serial line".into())
-            }
-        }
-    }
-
-    /// Write a JSON response string back over CDC-ACM with trailing newline.
-    pub fn write_response(&self, _usb: &UsbDevice, msg: &str) -> Result<(), String> {
-        let payload = format!("{}\n", msg);
-        match _usb.write_all(payload.as_bytes()) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(format!("Serial write error: {:?}", e)),
-        }
-    }
+/// Write a JSON response string back over serial with trailing newline.
+pub fn write_response(msg: &str) {
+    println!("{}", msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -93,12 +64,10 @@ pub fn read_line() -> Result<String, String> {
     let mut buf = [0u8; MAX_LINE];
     match std::io::stdin().read(&mut buf) {
         Ok(0) => Err("EOF".into()),
-        Ok(n) => {
-            match core::str::from_utf8(&buf[..n]) {
-                Ok(s) => Ok(s.trim().to_string()),
-                Err(_) => Err("Invalid UTF-8".into()),
-            }
-        }
+        Ok(n) => match core::str::from_utf8(&buf[..n]) {
+            Ok(s) => Ok(s.trim().to_string()),
+            Err(_) => Err("Invalid UTF-8".into()),
+        },
         Err(e) => Err(format!("stdin read error: {}", e)),
     }
 }

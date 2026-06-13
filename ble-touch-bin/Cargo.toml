@@ -3,23 +3,17 @@ name = "ble-touch-bin"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "ble-touch-bin"
-path = "src/main.rs"
-
 [features]
 default = []
-esp32 = ["dep:ekv", "dep:embedded-storage"]
+esp32 = []
 
 [dependencies]
 ble-touch-lib = { path = "../ble-touch-lib" }
 esp-idf-svc = { version = "0.52", features = ["binstart"] }
 esp32-nimble = "0.12"
-ekv = { version = "1", optional = true }
-embedded-storage = { version = "0.3", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 
 [build-dependencies]
-esp-idf-svc = { version = "0.52" }
+embuild = "0.33"
