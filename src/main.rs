@@ -1,10 +1,13 @@
-//! BLE Touch HID Bridge — ESP32-C3 entry point.
-//!
-//! This crate handles all hardware-specific code:
-//! - NimBLE initialization + HOGP service setup
-//! - CDC-ACM serial I/O
-//! - ekv flash storage for settings persistence
-//! - Main event loop: read JSON commands from serial → process → send HID reports over BLE
+// BLE Touch HID Bridge — ESP32-C3 entry point.
+//
+// This crate handles all hardware-specific code:
+// - NimBLE initialization + HOGP service setup
+// - CDC-ACM serial I/O
+// - NVS flash storage for settings persistence
+// - Main event loop: read JSON commands from serial → process → send HID reports over BLE
+
+#[allow(unused_extern_crates)]
+extern crate alloc;
 
 mod ble;
 mod serial;
@@ -21,10 +24,13 @@ fn main() {
     info!("ble-touch-bin starting...");
 
     // --- BLE init (HOGP service + advertising) ---
-    if let Err(e) = ble::init_and_advertise() {
-        error!("BLE init failed: {}", e);
-        loop {}
-    }
+    let ble_handle = match ble::init_and_advertise() {
+        Ok(h) => h,
+        Err(e) => {
+            error!("BLE init failed: {}", e);
+            loop {}
+        }
+    };
 
     // --- Load settings from flash ---
     let mut settings = storage::load_settings();
@@ -90,7 +96,7 @@ fn main() {
                     | Cmd::Dtap { .. }
                     | Cmd::LongPress { .. } => {
                         if let Some(seq) = ble_touch::process_cmd(&cmd, &settings) {
-                            ble::send_hid_reports(&seq);
+                            ble::send_hid_reports(&ble_handle, &seq);
                             serial::write_response(r#"{"ok":true,"status":"gesture sent"}"#);
                         } else {
                             serial::write_response(r#"{"ok":false,"error":"no gesture produced"}"#);

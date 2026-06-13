@@ -94,5 +94,8 @@ Use `{"cmd":"list_bonds"}` to see bonded devices, `{"cmd":"unpair","address":"XX
 - ✅ ESP32 build compiles clean
 - ✅ BLE stack initialization
 - ✅ Serial command loop
-- ⏳ HOGP GATT service construction (placeholder)
-- ⏳ NVS flash storage (stubbed)
+- ✅ HOGP GATT service construction (BLEHIDDevice helper)
+- ✅ NVS flash storage (EspDefaultNvsPartition + EspNvs)
+- ✅ HID report sending over BLE (input characteristic notify)
+- 🚧 Hardware testing (pending ESP32-C3 board)
+- 📋 HOGP descriptor validation (needs BLE scanner/analysis tool)
