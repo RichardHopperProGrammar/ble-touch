@@ -1,0 +1,3 @@
+[workspace]
+members = ["ble-touch-lib", "ble-touch-bin"]
+resolver = "2"

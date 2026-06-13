@@ -1,0 +1,13 @@
+[package]
+name = "ble-touch-bin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ble-touch-lib = { path = "../ble-touch-lib" }
+
+# ESP32 dependencies (uncomment when building for hardware)
+# esp-idf-svc = { version = "0.48", features = ["binstart"] }
+# esp32-nimble = "0.12"
+# embedded-storage = "0.3"
+# ekv = "0.3"
